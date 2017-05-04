@@ -1,0 +1,33 @@
+# Created by .ignore support plugin (hsz.mobi)
+.idea
+/target
+/test
+
+
+ReversiServer.iml
+/out/
+.idea_modules/
+atlassian-ide-plugin.xml
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+fabric.properties
+*.class
+*.log
+*.ctxt
+.mtj.tmp/
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+Будет удалено .idea/
+Будет удалено ReversiServer.iml
+Будет удалено TestingDB.mv.db
+Будет удалено TestingDB.trace.db
+Будет удалено pom.xml
+Будет удалено src/
+Будет удалено target/
+Будет удалено test/
