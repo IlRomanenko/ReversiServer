@@ -12,7 +12,7 @@ import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
  * Created by ilya on 04.05.17.
  */
 @Configuration
-@PropertySource("classpath:app.properties")
+@PropertySource(value = {"file:${config.path}/app.properties", "classpath:app.properties"}, ignoreResourceNotFound = true)
 public class PropertiesWithJavaConfig {
 
     @Bean

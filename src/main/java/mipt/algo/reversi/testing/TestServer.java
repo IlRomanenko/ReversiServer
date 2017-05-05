@@ -74,33 +74,40 @@ public class TestServer {
         String secondExecPath = solutionStore.getSolutionExecPath(secondId);
 
         server.createListeningServer();
+        Process first = null;
+        Process second = null;
         try {
-            Runtime.getRuntime().exec(firstExecPath, new String[] { port.toString(), token });
-            Runtime.getRuntime().exec(secondExecPath, new String[] { port.toString(), token });
+            first = Runtime.getRuntime().exec(firstExecPath, new String[]{port.toString(), token});
+            second = Runtime.getRuntime().exec(secondExecPath, new String[]{port.toString(), token});
         } catch (IOException e) {
             log.error(e.getMessage());
         }
-        server.testGame(firstId, secondId);
+        server.testGame(firstId, secondId, true);
+        if (first != null) {
+            first.destroyForcibly();
+        }
+        if (second != null) {
+            second.destroyForcibly();
+        }
         portPool.add(port);
     }
 
     public void compileSolution(Integer userId, String solutionPath, String solutionLanguage) {
-        String solutionName = "_" + solutionLanguage;
-        String fullPath;
+        String solutionName = solutionLanguage + "_" +  Calendar.getInstance().getTime().getTime() + "_" + userId;
+        String fullPath = HOME_DIRECTORY + File.pathSeparator + userId.toString() + File.pathSeparator;
         switch (solutionLanguage) {
             case "cpp":
                 try {
-                    Runtime.getRuntime().exec("make", new String[]{""});
-
+                    Runtime.getRuntime().exec("/bin/bash /solutions/builddir/make.sh",
+                            new String[]{solutionPath, fullPath, solutionName});
+                    solutionStore.saveSolution(userId, fullPath + solutionName);
                 } catch (IOException e) {
                     log.error(e.getMessage());
                 }
                 break;
             case "python":
-
-                solutionName += Calendar.getInstance().getTime().getTime() + "_" + userId;
-                fullPath = "python " + HOME_DIRECTORY + File.pathSeparator + userId.toString() + File.pathSeparator + solutionName;
-                solutionStore.saveSolution(userId, fullPath);
+                fullPath = "python " + fullPath;
+                solutionStore.saveSolution(userId, fullPath + solutionName);
                 break;
             default:
                 log.error("Can't find " + solutionLanguage);

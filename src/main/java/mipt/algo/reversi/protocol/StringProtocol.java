@@ -1,9 +1,8 @@
 package mipt.algo.reversi.protocol;
 
-import com.sun.xml.internal.messaging.saaj.util.ByteOutputStream;
-
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.Map;
 
@@ -28,12 +27,17 @@ public class StringProtocol implements Protocol {
         byte[] buffer = new byte[Integer.BYTES];
         Integer result;
         try {
-            if (stream.read(buffer) == Integer.BYTES) {
-                result = decodeInteger(buffer);
-            } else {
-                result = -1;
+            for (int i = 0; i < Integer.BYTES; i++) {
+                int res = stream.read();
+                if (res < 0) {
+                    res = 0;
+                    System.out.println("err");
+                }
+                buffer[i] = (byte)res;
             }
+            result = decodeInteger(buffer);
         } catch (IOException ex) {
+            System.out.println(ex.getMessage());
             result = -1;
         }
         return result;
@@ -61,8 +65,6 @@ public class StringProtocol implements Protocol {
         if (string == null) {
             return null;
         }
-        Map.Entry<Integer, Integer> result;
-
         String[] args = string.split(" ");
 
         if (args.length != 3 || !args[0].equals("move")) {
@@ -73,7 +75,7 @@ public class StringProtocol implements Protocol {
         Integer y;
         try {
             x = Integer.parseInt(args[1]);
-            y = Integer.parseInt(args[2]);
+            y = args[2].charAt(0) - 'a';
         } catch (NumberFormatException e) {
             return null;
         }
@@ -92,9 +94,9 @@ public class StringProtocol implements Protocol {
 
     @Override
     public byte[] encode(String string) {
-        ByteOutputStream bos = new ByteOutputStream();
-        bos.write(encode(string.length()));
-        bos.write(string.getBytes());
-        return bos.getBytes();
+        byte[] arr = encode(string.length());
+        byte[] str = string.getBytes();
+        byte[] array = ByteBuffer.allocate(str.length + arr.length).put(arr).put(str).array();
+        return array;
     }
 }

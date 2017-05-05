@@ -2,13 +2,11 @@ package mipt.algo.reversi.testing;
 
 import mipt.algo.reversi.database.SolutionStore;
 import mipt.algo.reversi.protocol.StringProtocol;
-import org.springframework.beans.factory.annotation.Value;
 
-import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Map;
+import java.util.*;
 
 /**
  * ReversiServer
@@ -25,9 +23,9 @@ public class GameServer {
         private int firstScore;
         private int secondScore;
 
-        public GameResult(GameStatus status, int winner) {
+        public GameResult(GameStatus status, int looser) {
             this.status = status;
-            if (winner == 0) {
+            if (looser == 1) {
                 firstScore = 64;
                 secondScore = 0;
             } else {
@@ -80,14 +78,19 @@ public class GameServer {
         map = new Integer[8][8];
         for (int i = 0; i < 8; i++) {
             for (int j = 0; j < 8; j++) {
-                map[i][j] = -1;
+                map[i][j] = 0;
             }
         }
+        map[3][3] = 2;
+        map[3][4] = 1;
+        map[4][3] = 1;
+        map[4][4] = 2;
+
         clients = new GameClient[2];
     }
 
     public void createListeningServer() {
-        acceptConnThread = new Thread( () -> {
+        acceptConnThread = new Thread(() -> {
             try {
                 acceptConnections();
             } catch (IOException e) {
@@ -97,11 +100,11 @@ public class GameServer {
         acceptConnThread.start();
     }
 
-    public void testGame(Integer firstId, Integer secondId) {
+    public void testGame(Integer firstId, Integer secondId, Boolean fixedWaiting) {
 
         try {
             int cnt = 0;
-            while (cnt < 10) {
+            while (cnt < 10 || !fixedWaiting) {
                 Thread.sleep(100);
                 cnt++;
                 if (connectionsAccepted) {
@@ -117,11 +120,19 @@ public class GameServer {
 
         GameStatus initResult = initgame(firstId, secondId);
         if (initResult != GameStatus.OK) {
-            solutionStore.saveTestResult(firstId, secondId, "Invalid game {" + initResult.toString() + "}");
+            trySaveResult(firstId, secondId, "Invalid game {" + initResult.toString() + "}");
             return;
         }
         GameResult gameResult = gameloop();
-        solutionStore.saveTestResult(firstId, secondId, gameResult.toString());
+        trySaveResult(firstId, secondId, gameResult.toString());
+    }
+
+    private void trySaveResult(Integer firstId, Integer secondId, String str) {
+        if (solutionStore == null) {
+            System.out.println(String.format("%d vs %d -> %s", firstId, secondId, str));
+        } else {
+            solutionStore.saveTestResult(firstId, secondId, str);
+        }
     }
 
     private GameStatus initgame(Integer firstId, Integer secondId) {
@@ -134,8 +145,12 @@ public class GameServer {
                 return GameStatus.INVALID_TOKEN;
             }
 
-            Map.Entry<Integer, Integer> msg = clients[i].readTurn();
-            ids[i] = msg.getKey();
+            String id = clients[i].readToken();
+            try {
+                ids[i] = Integer.parseInt(id);
+            } catch (NumberFormatException e) {
+                return GameStatus.SERVER_ERROR;
+            }
         }
 
         if (ids[1].equals(firstId)) {
@@ -154,86 +169,163 @@ public class GameServer {
 
         for (int i = 0; i < 2; i++) {
             if (ids[i].equals(firstId)) {
-                clients[i].sendMessage("white");
+                clients[i].sendMessage("init black");
             } else {
-                clients[i].sendMessage("black");
+                clients[i].sendMessage("init white");
             }
         }
         return GameStatus.OK;
     }
 
-    private GameStatus validateTurn(Map.Entry<Integer, Integer> turn) {
-        if (turn == null) {
-            return GameStatus.TIMEOUT_ERROR;
+    private final int[][] turnOffsets = new int[][]{
+            {-1, 0},
+            {-1, 1},
+            {0, 1},
+            {1, 1},
+            {1, 0},
+            {1, -1},
+            {0, -1},
+            {-1, -1}
+    };
+
+    private Integer getReverseLength(int x, int y, int turnOffsetIndex, int player) {
+        int[] turnOffset = turnOffsets[turnOffsetIndex];
+        int revertLength = 0;
+        for (int c = 1; c < 8; c++) {
+            int tx = x + turnOffset[0] * c, ty = y + turnOffset[1] * c;
+
+            if (tx >= 0 && tx < 8 && ty >= 0 && ty < 8) {
+                if (map[tx][ty] == 0) {
+                    break;
+                } else if (map[tx][ty] == player) {
+                    revertLength = c - 1;
+                    break;
+                }
+            } else {
+                break;
+            }
         }
-        int x = turn.getKey(), y = turn.getValue();
-        if (x < 0 || x >= 8 || y < 0 || y >= 8 || map[x][y] != -1) {
-            return GameStatus.INVALID_TURN;
-        }
-        return GameStatus.OK;
+        return revertLength;
     }
 
-    private GameResult gameloop() {
-        Integer[][] offsets = new Integer[][] {
-                new Integer[]{-1, 0},
-                new Integer[]{-1, 1},
-                new Integer[]{0, 1},
-                new Integer[]{1, 1},
-                new Integer[]{1, 0},
-                new Integer[]{1, -1},
-                new Integer[]{-1, 0},
-                new Integer[]{-1, -1}
-        };
+    private Set<Map.Entry<Integer, Integer>> getValidTurns(int player) {
 
-        Integer offsetSize = 8;
+        Set<Map.Entry<Integer, Integer>> validTurns = new HashSet<>();
 
-        for (int i = 0; i < 64; i++) {
-            Integer cur = i ^ 2;
-            Map.Entry<Integer, Integer> turn = clients[cur].readTurn();
+        for (int x = 0; x < 8; x++) {
+            for (int y = 0; y < 8; y++) {
+                boolean isValidTurn = false;
 
-            GameStatus turnStatus = validateTurn(turn);
+                if (map[x][y] != 0) {
+                    continue;
+                }
 
-            if (turnStatus != GameStatus.OK) {
-                return new GameResult(turnStatus, cur ^ 1);
-            }
-
-            int x = turn.getKey(), y = turn.getValue();
-
-            for (int j = 0; j < offsetSize; j++) {
-                boolean canRevert = false;
-                int revertLength = 0;
-
-                for (int c = 1; c < 8 ;c++) {
-                    int tx = x + offsets[j][0] * c, ty = y + offsets[j][1] * c;
-                    if (tx >= 0 && tx < 8 && ty >= 0 && ty < 8) {
-                        if (map[tx][ty] == -1) {
-                            break;
-                        } else if (map[tx][ty].equals(cur)) {
-                            canRevert = true;
-                            revertLength = c;
-                        }
-                    } else {
+                for (int j = 0; j < turnOffsets.length; j++) {
+                    if (getReverseLength(x, y, j, player) > 0) {
+                        isValidTurn = true;
                         break;
                     }
                 }
-                if (canRevert) {
-                    for (int c = 1; c < revertLength; c++) {
-                        int tx = x + offsets[j][0] * c, ty = y + offsets[j][1] * c;
-                        map[tx][ty] = cur;
-                    }
+                if (isValidTurn) {
+                    validTurns.add(new AbstractMap.SimpleEntry<>(x, y));
                 }
             }
         }
+
+        return validTurns;
+    }
+
+    private void processTurn(int x, int y, int player) {
+        map[x][y] = player;
+
+        for (int j = 0; j < turnOffsets.length; j++) {
+            int revertLength = getReverseLength(x, y, j, player);
+
+            for (int c = 1; c <= revertLength; c++) {
+                map[x + turnOffsets[j][0] * c][y + turnOffsets[j][1] * c] = player;
+            }
+
+        }
+    }
+
+    private GameResult gameloop() {
+
+        boolean hasTurn = true;
+        Set<Map.Entry<Integer, Integer>> firstValidTurns;
+        Set<Map.Entry<Integer, Integer>> secondValidTurns;
+        List<Queue<Map.Entry<Integer, Integer>>> playerToSendTurns = new ArrayList<>();
+
+        playerToSendTurns.add(new LinkedList<>());
+        playerToSendTurns.add(new LinkedList<>());
+
+        int curPlayer = 1;
+        int anotherPlayer;
+
+        do {
+            anotherPlayer = 3 - curPlayer;
+            firstValidTurns = getValidTurns(curPlayer);
+            secondValidTurns = getValidTurns(anotherPlayer);
+
+            if (!firstValidTurns.isEmpty()) {
+                while (!playerToSendTurns.get(curPlayer - 1).isEmpty()) {
+                    Map.Entry<Integer, Integer> move = playerToSendTurns.get(curPlayer - 1).poll();
+                    clients[curPlayer - 1].sendMove(move.getKey(), move.getValue());
+                }
+                clients[curPlayer - 1].sendTurn();
+
+                Map.Entry<Integer, Integer> turn = clients[curPlayer - 1].readTurn();
+
+                if (!firstValidTurns.contains(turn)) {
+                    if (turn == null) {
+                        return new GameResult(GameStatus.TIMEOUT_ERROR, curPlayer);
+                    }
+                    System.out.println("Turn " + curPlayer + " " + turn.getKey() + " " + turn.getValue());
+                    return new GameResult(GameStatus.INVALID_TURN, curPlayer);
+                }
+                System.out.println("Turn " + curPlayer + " " + turn.getKey() + " " + turn.getValue());
+
+                playerToSendTurns.get(anotherPlayer - 1).add(turn);
+
+                processTurn(turn.getKey(), turn.getValue(), curPlayer);
+
+                System.out.println();
+                for (int i = 0; i < 8; i++) {
+                    for (int j = 0; j < 8; j++) {
+                        System.out.print(map[i][j]);
+                        System.out.print(' ');
+                    }
+                    System.out.println();
+                }
+                System.out.println();
+            }
+
+            if (firstValidTurns.isEmpty() && secondValidTurns.isEmpty()) {
+                hasTurn = false;
+            }
+            curPlayer = 3 - curPlayer;
+        } while (hasTurn);
+
         int firstType = 0, secondType = 0;
 
         for (int i = 0; i < 8; i++) {
             for (int j = 0; j < 8; j++) {
-                if (map[i][j] == 0) {
+                if (map[i][j] == 1) {
                     firstType++;
                 } else {
                     secondType++;
                 }
             }
+        }
+
+        if (firstType > secondType) {
+            clients[0].sendMessage("win");
+            clients[1].sendMessage("lose");
+        } else if (firstType < secondType) {
+            clients[0].sendMessage("lose");
+            clients[1].sendMessage("win");
+        } else {
+            clients[0].sendMessage("draw");
+            clients[1].sendMessage("draw");
         }
 
         return new GameResult(firstType, secondType);

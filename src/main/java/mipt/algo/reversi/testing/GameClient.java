@@ -32,7 +32,7 @@ public class GameClient {
 
         valid = true;
         try {
-            socket.setSoTimeout(timeout);
+            //socket.setSoTimeout(timeout);
 
             in = socket.getInputStream();
             out = socket.getOutputStream();
@@ -41,16 +41,22 @@ public class GameClient {
         }
     }
 
-    public boolean sendMessage(String str) {
+    public void sendMove(Integer x, Integer y) {
+        sendMessage("move " + x + " " + (char)('a' + y));
+    }
+
+    public void sendMessage(String str) {
         try {
             out.write(protocol.encode(str));
         } catch (IOException e) {
             valid = false;
         }
-        return valid;
     }
 
     public Map.Entry<Integer, Integer> readTurn() {
+        if (!valid) {
+            return null;
+        }
         Map.Entry<Integer, Integer> msg = protocol.decode(in);
         if (msg == null) {
             valid = false;
@@ -60,5 +66,9 @@ public class GameClient {
 
     public String readToken() {
         return protocol.decodeString(in);
+    }
+
+    public void sendTurn() {
+        sendMessage("turn");
     }
 }
