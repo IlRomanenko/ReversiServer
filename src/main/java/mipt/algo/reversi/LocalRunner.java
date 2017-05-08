@@ -10,7 +10,7 @@ import mipt.algo.reversi.testing.GameServer;
  */
 public class LocalRunner {
     public static void main(String[] args) {
-        GameServer server = new GameServer(4242, "", null);
+        GameServer server = new GameServer(4242, "", null, "log.txt");
         server.createListeningServer();
         server.testGame(1, 2, false);
     }

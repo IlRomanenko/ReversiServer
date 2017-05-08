@@ -2,7 +2,11 @@ package mipt.algo.reversi.testing;
 
 import mipt.algo.reversi.database.SolutionStore;
 import mipt.algo.reversi.protocol.StringProtocol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -15,6 +19,8 @@ import java.util.*;
  * Created by ilya on 03.05.17.
  */
 public class GameServer {
+
+    private static final Logger log = LoggerFactory.getLogger(GameServer.class);
 
     private class GameResult {
 
@@ -70,11 +76,20 @@ public class GameServer {
 
     private SolutionStore solutionStore;
 
-    public GameServer(int port, String token, SolutionStore store) {
+    private BufferedWriter out;
+    private String logPath;
+
+    public GameServer(int port, String token, SolutionStore store, String logPath) {
         this.port = port;
         this.token = token;
         this.solutionStore = store;
 
+        try {
+            this.logPath = logPath;
+            out = new BufferedWriter(new FileWriter(logPath));
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
         map = new Integer[8][8];
         for (int i = 0; i < 8; i++) {
             for (int j = 0; j < 8; j++) {
@@ -95,6 +110,7 @@ public class GameServer {
                 acceptConnections();
             } catch (IOException e) {
                 connectionsAccepted = false;
+                log.error(e.getMessage());
             }
         });
         acceptConnThread.start();
@@ -112,30 +128,34 @@ public class GameServer {
                 }
             }
             if (!connectionsAccepted) {
+                log.error("Too long waiting, interrupt listen server");
                 acceptConnThread.interrupt();
             }
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            log.error(e.getMessage());
         }
 
         GameStatus initResult = initgame(firstId, secondId);
         if (initResult != GameStatus.OK) {
-            trySaveResult(firstId, secondId, "Invalid game {" + initResult.toString() + "}");
+            trySaveResult(firstId, secondId, 0, 0, "Invalid game {" + initResult.toString() + "}");
             return;
         }
         GameResult gameResult = gameloop();
-        trySaveResult(firstId, secondId, gameResult.toString());
+        trySaveResult(firstId, secondId, gameResult.firstScore, gameResult.secondScore, gameResult.toString());
     }
 
-    private void trySaveResult(Integer firstId, Integer secondId, String str) {
+    private void trySaveResult(Integer firstId, Integer secondId, Integer firstScore, Integer secondScore, String result) {
+        final int MAGIC_CONST = 1000000000;
         if (solutionStore == null) {
-            System.out.println(String.format("%d vs %d -> %s", firstId, secondId, str));
+            System.out.println(String.format("%d vs %d -> %s", firstId, secondId - MAGIC_CONST, result));
         } else {
-            solutionStore.saveTestResult(firstId, secondId, str);
+            solutionStore.saveTestResult(firstId, secondId - MAGIC_CONST, firstScore, secondScore, result, logPath);
         }
     }
 
     private GameStatus initgame(Integer firstId, Integer secondId) {
+
+        log.info("Begin init game");
 
         ids = new Integer[2];
         for (int i = 0; i < 2; i++) {
@@ -164,6 +184,7 @@ public class GameServer {
         }
 
         if (!ids[0].equals(firstId) || !ids[1].equals(secondId)) {
+            log.error("Can't init game, different ids");
             return GameStatus.SERVER_ERROR;
         }
 
@@ -174,6 +195,7 @@ public class GameServer {
                 clients[i].sendMessage("init white");
             }
         }
+        log.info("Send init, game initializing completed");
         return GameStatus.OK;
     }
 
@@ -248,8 +270,17 @@ public class GameServer {
         }
     }
 
+    private void writeToLog(String str) {
+        try {
+            out.write(str);
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
     private GameResult gameloop() {
 
+        log.info("Begin testing game");
         boolean hasTurn = true;
         Set<Map.Entry<Integer, Integer>> firstValidTurns;
         Set<Map.Entry<Integer, Integer>> secondValidTurns;
@@ -277,26 +308,30 @@ public class GameServer {
 
                 if (!firstValidTurns.contains(turn)) {
                     if (turn == null) {
+                        log.error("Timeout exception");
                         return new GameResult(GameStatus.TIMEOUT_ERROR, curPlayer);
                     }
-                    System.out.println("Turn " + curPlayer + " " + turn.getKey() + " " + turn.getValue());
+
+                    writeToLog("Turn " + curPlayer + " " + turn.getKey() + " " + turn.getValue() + "\n");
+
+                    log.error("Invalid turn" + curPlayer);
                     return new GameResult(GameStatus.INVALID_TURN, curPlayer);
                 }
-                System.out.println("Turn " + curPlayer + " " + turn.getKey() + " " + turn.getValue());
+                writeToLog("Turn " + curPlayer + " " + turn.getKey() + " " + turn.getValue() + "\n");
 
                 playerToSendTurns.get(anotherPlayer - 1).add(turn);
 
                 processTurn(turn.getKey(), turn.getValue(), curPlayer);
 
-                System.out.println();
+                writeToLog("\n");
                 for (int i = 0; i < 8; i++) {
                     for (int j = 0; j < 8; j++) {
-                        System.out.print(map[i][j]);
-                        System.out.print(' ');
+                        writeToLog(map[i][j].toString());
+                        writeToLog(" ");
                     }
-                    System.out.println();
+                    writeToLog("\n");
                 }
-                System.out.println();
+                writeToLog("\n");
             }
 
             if (firstValidTurns.isEmpty() && secondValidTurns.isEmpty()) {
@@ -328,15 +363,34 @@ public class GameServer {
             clients[1].sendMessage("draw");
         }
 
+        writeToLog("Result : " + firstType + " vs " + secondType + "\n");
+
+        log.info("End testing game");
+
         return new GameResult(firstType, secondType);
     }
 
     private void acceptConnections() throws IOException {
+        log.info("Begin listen on port " + port);
         acceptSocket = new ServerSocket(port);
         for (int i = 0; i < 2; i++) {
             Socket clientSocket = acceptSocket.accept();
             clients[i] = new GameClient(clientSocket, new StringProtocol(), STRATEGY_TIMEOUT);
         }
         connectionsAccepted = true;
+        log.info("All clients have connected");
     }
+
+
+    public void close() {
+        try {
+
+            out.flush();
+            out.close();
+
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
 }

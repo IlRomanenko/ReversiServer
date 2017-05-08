@@ -12,5 +12,6 @@ public interface SolutionStore {
 
     boolean saveSolution(Integer userId, String solutionExecPath);
 
-    void saveTestResult(Integer firstSolution, Integer secondSolution, String result);
+    void saveTestResult(Integer firstSolution, Integer secondSolution,
+                        Integer firstScore, Integer secondScore, String result, String logFile);
 }

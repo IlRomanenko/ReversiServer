@@ -29,10 +29,7 @@ public class SolutionsDAO implements SolutionStore {
 
     private Connection connection;
 
-    private static final String SCHEMA_NAME = "Reversi";
-
     private PreparedStatement saveSolutionStatement;
-    private PreparedStatement addSolutionToUserStatement;
     private PreparedStatement getSolutionExecPathStatement;
     private PreparedStatement saveTestResultStatement;
 
@@ -48,39 +45,22 @@ public class SolutionsDAO implements SolutionStore {
     private void initSchema() {
         log.info("Initializing schema");
 
-        jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS " + SCHEMA_NAME);
-
         jdbcTemplate.execute(
-                "CREATE TABLE IF NOT EXISTS Reversi.Users (" +
-                        "id INTEGER NOT NULL AUTO_INCREMENT," +
-                        "username VARCHAR NOT NULL," +
-                        "password VARCHAR NOT NULL," +
-                        "name VARCHAR NOT NULL," +
-                        "surname VARCHAR NOT NULL," +
-                        "PRIMARY KEY (username)" +
-                        ");"
+                "CREATE TABLE IF NOT EXISTS Solutions (" +
+                        "id INT NOT NULL AUTO_INCREMENT PRIMARY KEY," +
+                        "user_id INT NOT NULL,"+
+                        "execpath VARCHAR(1024) NOT NULL);"
         );
 
         jdbcTemplate.execute(
-                "CREATE TABLE IF NOT EXISTS Reversi.Solutions (" +
-                        "id INTEGER NOT NULL," +
-                        "execpath VARCHAR NOT NULL);"
-        );
-
-        jdbcTemplate.execute(
-                "CREATE TABLE IF NOT EXISTS Reversi.UsersSolutions (" +
-                        "user_id INTEGER NOT NULL," +
-                        "solution_id INTEGER NOT NULL," +
-                        "PRIMARY KEY (user_id, solution_id));"
-        );
-
-
-        jdbcTemplate.execute(
-                "CREATE TABLE IF NOT EXISTS Reversi.TestResults (" +
-                        "id INTEGER NOT NULL AUTO_INCREMENT,"+
-                        "firstSolutionId INTEGER NOT NULL," +
-                        "secondSolutionId INTEGER NOT NULL," +
-                        "result VARCHAR NOT NULL, "+
+                "CREATE TABLE IF NOT EXISTS TestResults (" +
+                        "id INT NOT NULL AUTO_INCREMENT PRIMARY KEY ,"+
+                        "firstSolutionId INT NOT NULL," +
+                        "secondSolutionId INT NOT NULL," +
+                        "firstScore INT NOT NULL, " +
+                        "secondScore INT NOT NULL, " +
+                        "result VARCHAR(255) NOT NULL, " +
+                        "logFile VARCHAR(1024) NOT NULL, " +
                         "time DATETIME NOT NULL);"
         );
     }
@@ -90,17 +70,15 @@ public class SolutionsDAO implements SolutionStore {
             connection = dataSource.getConnection();
 
             saveSolutionStatement = connection.prepareStatement(
-                    "INSERT INTO Reversi.Solutions(EXECPATH) VALUES (?);", new String[]{"id"});
-
-            addSolutionToUserStatement = connection.prepareStatement(
-                    "INSERT INTO Reversi.UsersSolutions(user_id, solution_id) VALUES (?, ?);");
+                    "INSERT INTO Solutions(user_id, execpath) VALUES (?, ?);", new String[]{"id"});
 
             getSolutionExecPathStatement = connection.prepareStatement(
-                    "SELECT EXECPATH FROM Reversi.SOLUTIONS where id = ?");
+                    "SELECT execpath FROM Solutions where id = ?");
 
             saveTestResultStatement = connection.prepareStatement(
-                    "INSERT INTO REVERSI.TestResults(firstSolutionId, secondSolutionId, result, time) " +
-                            "VALUES (?, ?, ?, ?);");
+                    "INSERT INTO TestResults(firstSolutionId, secondSolutionId, firstScore, " +
+                            "secondScore, result, logFile, time) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?);");
 
         } catch (SQLException ex) {
             log.error(ex.getMessage());
@@ -116,7 +94,7 @@ public class SolutionsDAO implements SolutionStore {
                 ResultSet result = getSolutionExecPathStatement.executeQuery();
 
                 if (result.next()) {
-                    path = result.getString("execpath");
+                    path = result.getString(1);
                 }
             } catch (SQLException e) {
                 log.error(e.getMessage());
@@ -129,7 +107,8 @@ public class SolutionsDAO implements SolutionStore {
     public boolean saveSolution(Integer userId, String solutionExecPath) {
         synchronized (lockObject) {
             try {
-                saveSolutionStatement.setString(1, solutionExecPath);
+                saveSolutionStatement.setInt(1, userId);
+                saveSolutionStatement.setString(2, solutionExecPath);
                 saveSolutionStatement.execute();
                 ResultSet result = saveSolutionStatement.getGeneratedKeys();
 
@@ -137,12 +116,7 @@ public class SolutionsDAO implements SolutionStore {
                     return false;
                 }
 
-                int solutionId = result.getInt("id");
-
-                addSolutionToUserStatement.setInt(1, userId);
-                addSolutionToUserStatement.setInt(2, solutionId);
-
-                addSolutionToUserStatement.execute();
+                result.getInt(1);
 
             } catch (SQLException e) {
                 log.error(e.getMessage());
@@ -152,14 +126,18 @@ public class SolutionsDAO implements SolutionStore {
     }
 
     @Override
-    public void saveTestResult(Integer firstSolution, Integer secondSolution, String result) {
+    public void saveTestResult(Integer firstSolution, Integer secondSolution,
+                               Integer firstScore, Integer secondScore, String result, String logFile) {
         synchronized (lockObject) {
             try {
                 saveTestResultStatement.setInt(1, firstSolution);
                 saveTestResultStatement.setInt(2, secondSolution);
-                saveTestResultStatement.setString(3, result);
+                saveTestResultStatement.setInt(3, firstScore);
+                saveTestResultStatement.setInt(4, secondScore);
+                saveTestResultStatement.setString(5, result);
+                saveTestResultStatement.setString(6, logFile);
 
-                saveTestResultStatement.setDate(4, new Date(Calendar.getInstance().getTime().getTime()));
+                saveTestResultStatement.setDate(7, new Date(Calendar.getInstance().getTime().getTime()));
 
                 saveTestResultStatement.execute();
 
